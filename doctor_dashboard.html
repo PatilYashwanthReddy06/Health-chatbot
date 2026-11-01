@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Doctor App – Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+    <style>
+        .table { width: 100%; border-collapse: collapse; }
+        .table th, .table td {
+            padding: 10px 10px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+            vertical-align: top;
+            font-size: 0.86rem;
+        }
+        .table th {
+            text-align: left;
+            color: #cbd5e1;
+            font-weight: 600;
+            background: rgba(2, 6, 23, 0.35);
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+        .pill.pending { border-color: rgba(251, 191, 36, 0.5); color: #fde68a; }
+        .pill.accepted { border-color: rgba(16, 185, 129, 0.5); color: #a7f3d0; }
+        .pill.rejected { border-color: rgba(248, 113, 113, 0.5); color: #fecaca; }
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn.danger {
+            background: rgba(248, 113, 113, 0.14);
+            border: 1px solid rgba(248, 113, 113, 0.55);
+            color: #fecaca;
+        }
+        .btn.danger:hover {
+            border-color: rgba(248, 113, 113, 0.9);
+            background: rgba(248, 113, 113, 0.18);
+        }
+        .top-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        .filters {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .filters select { max-width: 220px; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo-wrapper">
+                <img src="/static/logo.svg" alt="Logo" class="logo" />
+                <div class="title-text">
+                    <h1>Doctor Dashboard</h1>
+                    <p id="subtitle">Loading…</p>
+                </div>
+            </div>
+            <div class="user-info" id="doctor-info"></div>
+        </header>
+
+        <main class="main-layout" style="grid-template-columns: minmax(0, 1fr);">
+            <section class="chat-section">
+                <div class="controls-column">
+                    <div class="top-row">
+                        <div class="filters">
+                            <div class="form-group" style="margin:0; min-width: 220px;">
+                                <label for="statusFilter">Filter by status</label>
+                                <select id="statusFilter">
+                                    <option value="all">All</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="accepted">Accepted</option>
+                                    <option value="rejected">Rejected</option>
+                                </select>
+                            </div>
+                            <button class="btn secondary" id="refreshBtn">Refresh</button>
+                        </div>
+                        <div class="muted small" id="hint">Tip: pending requests can be accepted/rejected.</div>
+                    </div>
+                </div>
+
+                <div class="chat-window" style="padding:0;">
+                    <div style="padding: 12px 12px 8px;">
+                        <div class="muted small" id="statusText"></div>
+                    </div>
+                    <div style="overflow:auto; max-height: 520px;">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 80px;">ID</th>
+                                    <th style="width: 170px;">Patient</th>
+                                    <th style="width: 160px;">Disease</th>
+                                    <th style="width: 150px;">Date / Time</th>
+                                    <th style="width: 120px;">Status</th>
+                                    <th style="width: 200px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <span>&copy; <span id="year"></span> Doctor App</span>
+            <span class="footer-disclaimer">Appointments</span>
+        </footer>
+    </div>
+
+    <script>
+        async function apiRequest(path, method = "GET", data = null) {
+            const options = {
+                method,
+                headers: { "Content-Type": "application/json" },
+                credentials: "include"
+            };
+            if (data) options.body = JSON.stringify(data);
+            const res = await fetch(path, options);
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json.error || "Request failed");
+            return json;
+        }
+
+        function escapeHtml(s) {
+            return String(s ?? "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+
+        function pill(status) {
+            const st = String(status || "pending").toLowerCase();
+            return `<span class="pill ${escapeHtml(st)}">${escapeHtml(st.toUpperCase())}</span>`;
+        }
+
+        document.getElementById("year").textContent = new Date().getFullYear();
+
+        const rowsEl = document.getElementById("rows");
+        const statusText = document.getElementById("statusText");
+        const statusFilter = document.getElementById("statusFilter");
+        const refreshBtn = document.getElementById("refreshBtn");
+        const subtitle = document.getElementById("subtitle");
+        const doctorInfo = document.getElementById("doctor-info");
+
+        let doctor = null;
+        let appointments = [];
+
+        async function ensureDoctor() {
+            const me = await apiRequest("/api/me");
+            doctor = me.doctor;
+            subtitle.textContent = `${doctor.name} • ${doctor.specialization}`;
+            doctorInfo.innerHTML =
+                `<span class="user-badge">${escapeHtml(doctor.name)}</span>
+                 <button class="btn tiny" id="logoutBtn">Logout</button>`;
+            document.getElementById("logoutBtn").addEventListener("click", async () => {
+                try { await apiRequest("/api/logout", "POST"); } catch (e) {}
+                window.location.href = "/";
+            });
+        }
+
+        async function loadAppointments() {
+            statusText.textContent = "Loading appointments…";
+            const resp = await apiRequest("/api/appointments");
+            appointments = resp.appointments || [];
+            statusText.textContent = `${appointments.length} appointment(s) found.`;
+        }
+
+        function render() {
+            const filter = statusFilter.value;
+            const filtered = appointments.filter(a => filter === "all" ? true : String(a.status).toLowerCase() === filter);
+
+            rowsEl.innerHTML = "";
+            if (!filtered.length) {
+                rowsEl.innerHTML = `<tr><td colspan="6" class="muted small" style="padding:14px 10px;">No appointments for this filter.</td></tr>`;
+                return;
+            }
+
+            filtered.forEach(a => {
+                const isPending = String(a.status).toLowerCase() === "pending";
+                const patient = `${escapeHtml(a.user_name)}<div class="muted small">${escapeHtml(a.user_email)}</div>`;
+                const dateTime = `${escapeHtml(a.appointment_date)}<div class="muted small">${escapeHtml(a.appointment_time)}</div>`;
+                const actions = isPending
+                    ? `<div class="actions">
+                           <button class="btn primary tiny" data-action="accept" data-id="${a.id}">Accept</button>
+                           <button class="btn danger tiny" data-action="reject" data-id="${a.id}">Reject</button>
+                       </div>`
+                    : `<span class="muted small">No actions</span>`;
+
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${a.id}</td>
+                    <td>${patient}</td>
+                    <td>${escapeHtml(a.disease_name)}</td>
+                    <td>${dateTime}</td>
+                    <td>${pill(a.status)}</td>
+                    <td>${actions}</td>
+                `;
+                rowsEl.appendChild(tr);
+            });
+        }
+
+        rowsEl.addEventListener("click", async (e) => {
+            const btn = e.target.closest("button[data-action]");
+            if (!btn) return;
+            const id = btn.getAttribute("data-id");
+            const action = btn.getAttribute("data-action");
+            btn.disabled = true;
+            try {
+                await apiRequest(`/api/appointments/${id}/status`, "POST", { action });
+                await loadAppointments();
+                render();
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        statusFilter.addEventListener("change", render);
+        refreshBtn.addEventListener("click", async () => {
+            await loadAppointments();
+            render();
+        });
+
+        (async () => {
+            try {
+                await ensureDoctor();
+                await loadAppointments();
+                render();
+            } catch (err) {
+                window.location.href = "/";
+            }
+        })();
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Doctor App – Create account</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo-wrapper">
+                <img src="/static/logo.svg" alt="Logo" class="logo" />
+                <div class="title-text">
+                    <h1>Doctor registration</h1>
+                    <p>Verify email with OTP, then create your account</p>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-layout" style="grid-template-columns: minmax(0, 480px) minmax(0, 1fr);">
+            <section class="sidebar" style="border-right: none;">
+                <div class="auth-card" id="auth-card">
+                    <h2>Create doctor account</h2>
+                    <form id="reg-form">
+                        <div class="form-group">
+                            <label for="name">Full name</label>
+                            <input type="text" id="name" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="specialization">Specialization</label>
+                            <input type="text" id="specialization" placeholder="e.g. Cardiologist" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="hospital_name">Hospital name</label>
+                            <input type="text" id="hospital_name" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="hospital_address">Hospital address</label>
+                            <input type="text" id="hospital_address" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" required minlength="4" />
+                        </div>
+                        <div class="form-group otp-block">
+                            <label>Email verification (OTP)</label>
+                            <div class="otp-row">
+                                <button type="button" class="btn secondary" id="send-otp-btn">Send OTP to email</button>
+                            </div>
+                            <input type="text" id="otp" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code" required style="margin-top:8px;" />
+                            <p class="muted small" id="otp-hint"></p>
+                        </div>
+                        <button type="submit" class="btn primary full-width">Register</button>
+                        <div class="error-message" id="error"></div>
+                        <p class="muted small" style="margin-top:10px;">
+                            Already have an account? <a href="/">Back to login</a>
+                        </p>
+                    </form>
+                </div>
+            </section>
+
+            <section class="chat-section">
+                <div class="chat-window">
+                    <div class="message bot">
+                        <div class="bubble">
+                            <p>
+                                We send a one-time code to your email to verify it before your account is created.
+                                Configure <strong>SMTP_HOST</strong> and related env vars on the server for real delivery;
+                                otherwise check the server console for the OTP during development.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <span>&copy; <span id="year"></span> Doctor App</span>
+        </footer>
+    </div>
+
+    <script>
+        async function apiRequest(path, method = "GET", data = null) {
+            const options = {
+                method,
+                headers: { "Content-Type": "application/json" },
+                credentials: "include"
+            };
+            if (data) options.body = JSON.stringify(data);
+            const res = await fetch(path, options);
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json.error || "Request failed");
+            return json;
+        }
+
+        document.getElementById("year").textContent = new Date().getFullYear();
+
+        const form = document.getElementById("reg-form");
+        const errorEl = document.getElementById("error");
+        const otpHint = document.getElementById("otp-hint");
+        const sendOtpBtn = document.getElementById("send-otp-btn");
+
+        sendOtpBtn.addEventListener("click", async () => {
+            errorEl.textContent = "";
+            otpHint.textContent = "";
+            const email = document.getElementById("email").value.trim();
+            if (!email) {
+                errorEl.textContent = "Enter your email first.";
+                return;
+            }
+            sendOtpBtn.disabled = true;
+            try {
+                const resp = await apiRequest("/api/otp/doctor/send", "POST", { email });
+                otpHint.textContent = resp.message || "OTP sent.";
+                if (resp.debug_otp) {
+                    otpHint.textContent += " (Demo OTP: " + resp.debug_otp + ")";
+                }
+            } catch (err) {
+                errorEl.textContent = err.message;
+            } finally {
+                sendOtpBtn.disabled = false;
+            }
+        });
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            errorEl.textContent = "";
+            try {
+                await apiRequest("/api/register", "POST", {
+                    name: document.getElementById("name").value.trim(),
+                    email: document.getElementById("email").value.trim(),
+                    password: document.getElementById("password").value,
+                    specialization: document.getElementById("specialization").value.trim(),
+                    hospital_name: document.getElementById("hospital_name").value.trim(),
+                    hospital_address: document.getElementById("hospital_address").value.trim(),
+                    otp: document.getElementById("otp").value.trim()
+                });
+                window.location.href = "/";
+            } catch (err) {
+                errorEl.textContent = err.message;
+            }
+        });
+    </script>
+</body>
+</html>
